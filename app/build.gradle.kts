@@ -1,23 +1,51 @@
+import java.io.File
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
+// Функция для автоинкремента версии
+fun getVersionCodeAndIncrement(): Int {
+    val versionPropsFile = file("version.properties")
+    val versionProps = Properties()
+
+    if (versionPropsFile.exists()) {
+        versionProps.load(versionPropsFile.inputStream())
+    }
+
+    val code = versionProps.getProperty("VERSION_CODE", "0").toInt() + 1
+    versionProps["VERSION_CODE"] = code.toString()
+    versionProps.store(versionPropsFile.outputStream(), null)
+    return code
+}
+
+val currentVersionCode = getVersionCodeAndIncrement()
+val currentVersionName = "0.0.$currentVersionCode"
+
 android {
     namespace = "com.monekx.hyprlink"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36 // Рекомендуется использовать стабильный SDK, если 36 еще в превью
 
     defaultConfig {
         applicationId = "com.monekx.hyprlink"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = currentVersionCode
+        versionName = currentVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Настройка имени APK файла
+    applicationVariants.all {
+        outputs.all {
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            val abi = output.getFilter(com.android.build.OutputFile.ABI) ?: "universal"
+            outputFileName = "alpha-hyprlink-mobile-$currentVersionName-$abi.apk"
+        }
     }
 
     buildTypes {
@@ -45,7 +73,6 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("androidx.compose.material3:material3:1.1.0")
-    // Для работы с сетью в фоне
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.1")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

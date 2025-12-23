@@ -12,6 +12,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.BufferedWriter
+import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -53,7 +54,6 @@ class HyprLinkService : Service() {
                 override fun onSkipToNext() { sendAction("media_next", null) }
                 override fun onSkipToPrevious() { sendAction("media_prev", null) }
                 override fun onSeekTo(pos: Long) {
-                    // Отправляем позицию в секундах, так как playerctl ждет их
                     sendAction("media_seek", pos.toDouble() / 1000.0)
                 }
             })
@@ -107,7 +107,6 @@ class HyprLinkService : Service() {
 
     private fun createNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java).apply {
-            // FLAG_ACTIVITY_SINGLE_TOP предотвращает создание новой активити, если она уже открыта
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
 
@@ -124,7 +123,7 @@ class HyprLinkService : Service() {
             .setContentTitle("HyprLink")
             .setContentText("Сервис активен")
             .setSmallIcon(android.R.drawable.ic_menu_rotate)
-            .setContentIntent(pendingIntent) // Это обработает нажатие на само уведомление
+            .setContentIntent(pendingIntent)
             .setStyle(style)
             .setOngoing(true)
             .build()
@@ -190,7 +189,14 @@ class HyprLinkService : Service() {
         try {
             while (currentCoroutineContext().isActive) {
                 val line = reader.readLine() ?: break
+                println("DEBUG: Received from server: $line") // Проверь это в Logcat
                 val response = gson.fromJson(line, ServerResponse::class.java) ?: continue
+
+                if (response.type == "get_request") {
+                    println("DEBUG: Processing get_request")
+                    sendSystemStats()
+                    continue
+                }
 
                 when (response.status) {
                     "unauthorized" -> {
@@ -252,7 +258,7 @@ class HyprLinkService : Service() {
 
         mediaSession?.setPlaybackState(
             PlaybackStateCompat.Builder()
-                .setState(state, position, speed) // Передаем скорость для плавной анимации
+                .setState(state, position, speed)
                 .setActions(
                     PlaybackStateCompat.ACTION_PLAY_PAUSE or
                             PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
@@ -269,7 +275,7 @@ class HyprLinkService : Service() {
             MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
-                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration) // Важно для макс. значения ползунка
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, duration)
                 .build()
         )
 
@@ -293,6 +299,47 @@ class HyprLinkService : Service() {
                 }
             }
         }
+    }
+
+    private fun sendSystemStats() {
+        serviceScope.launch {
+            try {
+                val stats = getSystemStats()
+                val json = gson.toJson(stats)
+                writer?.let {
+                    it.write(json)
+                    it.newLine() // ОБЯЗАТЕЛЬНО
+                    it.flush()
+                    println("DEBUG: Stats sent: $json")
+                }
+            } catch (e: Exception) {
+                println("DEBUG: Error sending stats: ${e.message}")
+            }
+        }
+    }
+
+    private fun getSystemStats(): Map<String, Any> {
+        val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val memoryInfo = ActivityManager.MemoryInfo()
+        activityManager.getMemoryInfo(memoryInfo)
+
+        val ramUsage = ((memoryInfo.totalMem - memoryInfo.availMem).toDouble() / memoryInfo.totalMem.toDouble()) * 100
+
+        val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batLevel = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+
+        val stat = StatFs(Environment.getExternalStorageDirectory().path)
+        val bytesAvailable = stat.blockSizeLong * stat.availableBlocksLong
+        val storageFreeGb = bytesAvailable / (1024 * 1024 * 1024)
+
+        return mapOf(
+            "type" to "sys_info",
+            "ram_usage" to String.format("%.1f%%", ramUsage),
+            "ram_free" to "${memoryInfo.availMem / (1024 * 1024)} MB",
+            "battery" to "$batLevel%",
+            "storage_free" to "${storageFreeGb}GB",
+            "model" to Build.MODEL
+        )
     }
 
     private fun handleDisconnect() {

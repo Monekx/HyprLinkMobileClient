@@ -29,6 +29,13 @@ fun DynamicScreen(
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
+    // Безопасный сброс индекса, если количество вкладок изменилось или профили отсутствуют
+    LaunchedEffect(config.profiles.size) {
+        if (selectedTabIndex >= config.profiles.size) {
+            selectedTabIndex = 0
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize().background(bgColor).statusBarsPadding()) {
         Text(
             text = config.hostname,
@@ -37,23 +44,31 @@ fun DynamicScreen(
             modifier = Modifier.padding(16.dp)
         )
 
-        // Вкладки профилей
-        ScrollableTabRow(
-            selectedTabIndex = selectedTabIndex,
-            containerColor = Color.Transparent,
-            contentColor = accentColor,
-            edgePadding = 16.dp,
-            divider = {}
-        ) {
-            config.profiles.forEachIndexed { index, profile ->
-                Tab(
-                    selected = selectedTabIndex == index,
-                    onClick = { selectedTabIndex = index },
-                    text = { Text(profile.name, color = if (selectedTabIndex == index) accentColor else textColor.copy(alpha = 0.6f)) }
-                )
+        // Проверка: если профилей нет, не отрисовываем TabRow, чтобы избежать IndexOutOfBoundsException
+        if (config.profiles.isNotEmpty()) {
+            ScrollableTabRow(
+                selectedTabIndex = selectedTabIndex,
+                containerColor = Color.Transparent,
+                contentColor = accentColor,
+                edgePadding = 16.dp,
+                divider = {}
+            ) {
+                config.profiles.forEachIndexed { index, profile ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = {
+                            Text(
+                                text = profile.name,
+                                color = if (selectedTabIndex == index) accentColor else textColor.copy(alpha = 0.6f)
+                            )
+                        }
+                    )
+                }
             }
         }
 
+        // Безопасное получение модулей текущего профиля
         val currentModules = config.profiles.getOrNull(selectedTabIndex)?.modules ?: emptyList()
 
         LazyVerticalGrid(

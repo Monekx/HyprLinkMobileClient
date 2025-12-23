@@ -2,6 +2,14 @@ package com.monekx.hyprlink
 
 enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED }
 
+data class DiscoveredServer(
+    val hostname: String,
+    val ip: String,
+    val port: Int
+)
+
+data class Beacon(val hostname: String, val port: Int)
+
 data class UIConfig(
     val hostname: String,
     val hash: String,
@@ -29,13 +37,13 @@ data class ServerResponse(
     val status: String? = null,
     val config: UIConfig? = null,
     val message: String? = null,
-    val app: String? = null, // Добавьте эту строку
+    val app: String? = null,
     val type: String? = null,
     val id: String? = null,
     val value: Double? = null,
     val title: String? = null,
     val content: String? = null,
     val device_id: String? = null,
-    val token: String?,
+    val token: String? = null,
     val duration: Long? = null,
 )

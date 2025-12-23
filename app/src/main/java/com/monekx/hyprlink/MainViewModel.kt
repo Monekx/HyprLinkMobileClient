@@ -2,6 +2,7 @@ package com.monekx.hyprlink
 
 import android.app.Application
 import android.content.*
+import android.os.Build
 import android.os.IBinder
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
@@ -10,12 +11,10 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.lang.ref.WeakReference
 
-// Наследуемся от AndroidViewModel, чтобы получить доступ к Application Context
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val discoveryManager = DiscoveryManager()
-
-    // Поле boundContext больше не нужно, утечки нет
     private var isBound = false
 
     var uiConfig by mutableStateOf<UIConfig?>(null)
@@ -27,26 +26,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val moduleValues = mutableStateMapOf<String, Float>()
     val moduleTexts = mutableStateMapOf<String, String>()
 
-    private var hyprService: HyprLinkService? = null
+    // Используем WeakReference, чтобы линтер не ругался на утечку контекста
+    private var serviceRef: WeakReference<HyprLinkService>? = null
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as HyprLinkService.LocalBinder
             val instance = binder.getService()
-            hyprService = instance
+            serviceRef = WeakReference(instance)
             isBound = true
             observeService(instance)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            hyprService = null
+            serviceRef = null
             isBound = false
         }
     }
 
     init {
         viewModelScope.launch {
-            discoveryManager.startDiscovery { server ->
+            // Вещаем и ждем ответа от Arch (ACK|port)
+            discoveryManager.startBroadcasting(Build.MODEL, 8080) { server ->
                 if (discoveredServers.none { it.ip == server.ip }) {
                     discoveredServers.add(server)
                 }
@@ -92,10 +93,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Убрали параметр context, берем его из getApplication()
     fun connect(ip: String, port: Int, pin: String) {
         unbindServiceIfBound()
-
         error = null
         isConnecting = true
 
@@ -111,7 +110,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendAction(id: String, value: Double? = null) {
-        hyprService?.sendAction(id, value)
+        // Достаем сервис из слабой ссылки
+        serviceRef?.get()?.sendAction(id, value)
     }
 
     private fun unbindServiceIfBound() {
@@ -122,12 +122,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 e.printStackTrace()
             }
             isBound = false
+            serviceRef = null
         }
     }
 
     override fun onCleared() {
         super.onCleared()
         unbindServiceIfBound()
-        hyprService = null
     }
 }

@@ -6,8 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,8 +37,6 @@ class MainActivity : ComponentActivity() {
                         LoginScreen(
                             isConnecting = viewModel.isConnecting,
                             error = viewModel.error,
-                            servers = viewModel.discoveredServers,
-                            // Убрали context из параметров
                             onConnect = { ip, pin ->
                                 viewModel.connect(ip, 8080, pin)
                             }
@@ -55,12 +51,14 @@ class MainActivity : ComponentActivity() {
     fun LoginScreen(
         isConnecting: Boolean,
         error: String?,
-        servers: List<DiscoveredServer>,
-        onConnect: (String, String) -> Unit // Убрали Context
+        onConnect: (String, String) -> Unit
     ) {
         var ip by remember { mutableStateOf("") }
         var pinValue by remember { mutableStateOf("") }
         var showPinDialog by remember { mutableStateOf(false) }
+
+        // Список серверов из ViewModel
+        val discoveredServers = viewModel.discoveredServers
 
         LaunchedEffect(error) {
             if (error == "unauthorized") {
@@ -74,10 +72,10 @@ class MainActivity : ComponentActivity() {
                     showPinDialog = false
                     viewModel.clearError()
                 },
-                title = { Text("Требуется PIN-код") },
+                title = { Text("Нужен PIN") },
                 text = {
                     Column {
-                        Text("Введите код, отображенный на вашем ПК")
+                        Text("Введи код из уведомления на Arch")
                         TextField(
                             value = pinValue,
                             onValueChange = { pinValue = it },
@@ -95,44 +93,51 @@ class MainActivity : ComponentActivity() {
                             pinValue = ""
                         },
                         enabled = pinValue.isNotEmpty()
-                    ) { Text("Войти") }
+                    ) { Text("ОК") }
                 }
             )
         }
 
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp).statusBarsPadding(),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Text("HyprLink", style = MaterialTheme.typography.headlineLarge)
 
-            if (servers.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text("Обнаруженные серверы:", style = MaterialTheme.typography.labelMedium)
-                LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-                    items(servers) { server ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                            onClick = { ip = server.ip }
-                        ) {
-                            ListItem(
-                                headlineContent = { Text(server.hostname) },
-                                supportingContent = { Text(server.ip) }
-                            )
-                        }
+            Spacer(Modifier.height(32.dp))
+
+            // Список найденных серверов
+            if (discoveredServers.isNotEmpty()) {
+                Text(
+                    "Обнаруженные устройства:",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.align(Alignment.Start).padding(bottom = 8.dp)
+                )
+                discoveredServers.forEach { server ->
+                    OutlinedButton(
+                        onClick = {
+                            ip = server.ip
+                            onConnect(server.ip, "")
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Text("${server.hostname} (${server.ip})")
                     }
                 }
+                Spacer(Modifier.height(16.dp))
             }
 
-            Spacer(Modifier.height(16.dp))
             TextField(
                 value = ip,
                 onValueChange = { ip = it },
-                label = { Text("IP Address") },
+                label = { Text("IP адрес компа") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+
             Spacer(Modifier.height(16.dp))
+
             Button(
                 onClick = {
                     viewModel.clearError()
@@ -144,7 +149,7 @@ class MainActivity : ComponentActivity() {
                 if (isConnecting) {
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
-                    Text("Connect")
+                    Text("Подключиться")
                 }
             }
 

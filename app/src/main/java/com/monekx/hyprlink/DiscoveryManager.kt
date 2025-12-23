@@ -1,59 +1,67 @@
 package com.monekx.hyprlink
 
+import android.util.Log
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
-data class DiscoveredServer(
-    val hostname: String,
-    val ip: String,
-    val port: Int
-)
 
 class DiscoveryManager {
     private val gson = Gson()
+    private var isBroadcasting = true
 
-    suspend fun startDiscovery(onServerFound: (DiscoveredServer) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun startBroadcasting(
+        hostname: String,
+        tcpPort: Int,
+        onServerFound: (DiscoveredServer) -> Unit
+    ) = withContext(Dispatchers.IO) {
         var socket: DatagramSocket? = null
+        isBroadcasting = true
+
         try {
-            // Привязываемся к порту 9999 и разрешаем повторное использование адреса
-            socket = DatagramSocket(9999).apply {
+            socket = DatagramSocket().apply {
                 broadcast = true
-                reuseAddress = true
+                soTimeout = 1500 // Таймаут для receive
             }
 
-            val buffer = ByteArray(1024)
+            val beacon = Beacon(hostname, tcpPort)
+            val msg = gson.toJson(beacon).toByteArray()
+            val packet = DatagramPacket(msg, msg.size, InetAddress.getByName("255.255.255.255"), 9999)
 
-            while (true) {
-                val packet = DatagramPacket(buffer, buffer.size)
-                socket.receive(packet)
+            while (isBroadcasting) {
+                // Отправляем маяк
+                socket.send(packet)
 
-                val message = String(packet.data, 0, packet.length).trim()
+                // Пытаемся поймать ACK от Arch
+                val ackBuf = ByteArray(64)
+                val ackPacket = DatagramPacket(ackBuf, ackBuf.size)
 
-                // Простая проверка, что это наш JSON
-                if (message.startsWith("{") && message.contains("hostname")) {
-                    val beacon = gson.fromJson(message, Beacon::class.java)
+                try {
+                    socket.receive(ackPacket)
+                    val resp = String(ackPacket.data, 0, ackPacket.length).trim()
 
-                    val server = DiscoveredServer(
-                        hostname = beacon.hostname,
-                        ip = packet.address.hostAddress,
-                        port = beacon.port
-                    )
+                    if (resp.startsWith("HYPRLINK_ACK")) {
+                        val serverIp = ackPacket.address.hostAddress
+                        val serverPort = resp.split("|").getOrNull(1)?.toInt() ?: tcpPort
 
-                    withContext(Dispatchers.Main) {
-                        onServerFound(server)
+                        Log.d("Discovery", "Arch found us at $serverIp. Stopping UDP.")
+                        isBroadcasting = false
+
+                        withContext(Dispatchers.Main) {
+                            onServerFound(DiscoveredServer("Arch Host", serverIp, serverPort))
+                        }
                     }
+                } catch (e: Exception) {
+                    // Просто таймаут, продолжаем цикл
                 }
+
+                if (isBroadcasting) delay(2000)
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         } finally {
             socket?.close()
         }
     }
 }
-
-data class Beacon(val hostname: String, val port: Int)

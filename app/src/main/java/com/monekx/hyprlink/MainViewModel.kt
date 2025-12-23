@@ -46,7 +46,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            // Вещаем и ждем ответа от Arch (ACK|port)
             discoveryManager.startBroadcasting(Build.MODEL, 8080) { server ->
                 if (discoveredServers.none { it.ip == server.ip }) {
                     discoveredServers.add(server)
@@ -84,8 +83,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             service.connectionState.collectLatest { state ->
-                isConnected = state == ConnectionState.CONNECTED
+                val connected = state == ConnectionState.CONNECTED
+                isConnected = connected
                 isConnecting = state == ConnectionState.CONNECTING
+
+                // Сообщаем менеджеру о статусе, чтобы он менял интервалы или затыкался
+                discoveryManager.setConnected(connected)
             }
         }
         viewModelScope.launch {
